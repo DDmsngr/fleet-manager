@@ -103,7 +103,18 @@ const columns = [
     title: 'Status', key: 'status',
     filterOptions: statusOptions,
     filter: (val, row) => row.status === val,
-    render: (r) => h(NTag, { color: { color: statusColor[r.status], textColor: 'white' }, size: 'small' }, { default: () => r.status }),
+    render: (r) => h('div', { class: 'flex items-center gap-1.5 flex-wrap' }, [
+      h(NTag, { color: { color: statusColor[r.status], textColor: 'white' }, size: 'small' }, { default: () => r.status }),
+      // VDA5050 agvPosition.positionInitialized: false → робот не знает где он.
+      // По просьбе Семёна 2026-09-11 показываем пометкой в таблице (не на карте).
+      r.positionInitialized === false
+        ? h(NTag, {
+            size: 'tiny', bordered: true,
+            color: { color: 'transparent', textColor: '#b45309', borderColor: '#f59e0b' },
+            title: 'Robot position is not yet initialized (VDA5050 agvPosition.positionInitialized=false)',
+          }, { default: () => 'not calibrated' })
+        : null,
+    ]),
   },
   {
     title: 'Battery', key: 'battery', sorter: (a, b) => a.battery - b.battery,
@@ -316,7 +327,15 @@ async function submitRegister() {
             </div>
 
             <div class="text-slate-500">Position</div>
-            <div class="font-mono text-xs">{{ selectedRobot.x.toFixed(2) }}, {{ selectedRobot.y.toFixed(2) }} m</div>
+            <div class="font-mono text-xs flex items-center gap-2">
+              <span>{{ selectedRobot.x.toFixed(2) }}, {{ selectedRobot.y.toFixed(2) }} m</span>
+              <NTag
+                v-if="selectedRobot.positionInitialized === false"
+                size="tiny" :bordered="true"
+                :color="{ color: 'transparent', textColor: '#b45309', borderColor: '#f59e0b' }"
+                title="Robot position is not yet initialized (VDA5050 agvPosition.positionInitialized=false)"
+              >not calibrated</NTag>
+            </div>
 
             <div class="text-slate-500">Heading</div>
             <div class="font-mono text-xs">{{ ((selectedRobot.theta * 180) / Math.PI).toFixed(1) }}°</div>

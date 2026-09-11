@@ -83,6 +83,7 @@ export const useRobotsStore = defineStore('robots', () => {
       status: 'offline',
       battery: 0, x: 0, y: 0, theta: 0,
       mission: null, uptime: '0h',
+      positionInitialized: false,  // VDA5050 — пока робот не пришлёт agvPosition, считаем не откалиброван
     })
   }
 
@@ -106,6 +107,9 @@ export const useRobotsStore = defineStore('robots', () => {
       theta: patch.theta ?? cur.theta,
       battery: patch.battery ?? cur.battery,
       status: patch.status ?? cur.status,
+      // positionInitialized: VDA5050-флаг из agvPosition. false = робот не знает
+      // где он (нужна калибровка). Отображается пометкой в таблице [[reference-fleet-manager-live-map]].
+      positionInitialized: patch.positionInitialized ?? cur.positionInitialized,
     }
   }
 

@@ -5,8 +5,28 @@ import { useRobotsStore } from '../stores/robots'
 /**
  * WebSocket-клиент телеметрии роботов.
  *
- * Формат сообщений от Семёна (согласовано 2026-09-08):
- *   { type: "state", robot_id: "amr-01", data: { x, y, theta, battery, status } }
+ * Формат VDA5050 (согласовано с Семёном 2026-09-11):
+ *
+ * 1) Позиция для Live Map (частое, ~5-10Hz):
+ *    {
+ *      robot_id: "ktc-23",
+ *      agvPosition: { mapId, positionInitialized, theta, x, y },
+ *      headerId, manufacturer, serialNumber, timestamp, version
+ *    }
+ *
+ * 2) Полный state для таблицы Robots (реже):
+ *    {
+ *      robot_id: "ktc-23",
+ *      agvPosition: {...},
+ *      batteryState: { batteryCharge, charging },
+ *      driving: bool,
+ *      operatingMode: "AUTOMATIC" | "MANUAL" | "SEMIAUTOMATIC" | "SERVICE",
+ *      safetyState: { eStop, fieldViolation },
+ *      errors: [...],
+ *      manufacturer, serialNumber, timestamp, version, ...
+ *    }
+ *
+ * Различаем по наличию batteryState — если есть, это полный state.
  *
  * URL:
  *   - runtime config `window.__FLEET_CONFIG__.wsUrl` в приоритете (если задан)
@@ -18,25 +38,38 @@ import { useRobotsStore } from '../stores/robots'
  * Использование: один инстанс на всё приложение, connect() из App.vue.onMounted.
  */
 
-// Enum статусов от Семёна на WS (заглавные, более человеческий чем на HTTP).
-// Различается с HTTP STATE_MAP (там ON_TASK, здесь MOVING).
-const WS_STATE_MAP = {
-  IDLE: 'idle',
-  MOVING: 'moving',
-  CHARGING: 'charging',
-  ERROR: 'error',
-  OFFLINE: 'offline',
-  TELEOP: 'teleop',
-  DEPLOYING: 'deploying',
-  MAP_DEPLOYMENT: 'deploying',
-  ON_TASK: 'moving',   // на случай если Семён отдаст HTTP-нотацию
+/**
+ * Правила маппинга статуса из VDA5050-полей полного state (согласовано с Семёном 2026-09-11):
+ *   1. errors[] не пусто            → 'error'
+ *   2. safetyState.eStop != 'NONE'  → 'error'
+ *   3. batteryState.charging        → 'charging'
+ *   4. driving                      → 'moving'
+ *   5. operatingMode == SEMIAUTOMATIC / MANUAL → 'teleop'
+ *   6. иначе                        → 'idle'
+ */
+function deriveStatus(state) {
+  if (Array.isArray(state.errors) && state.errors.length) return 'error'
+  const eStop = state.safetyState?.eStop
+  if (eStop && eStop !== 'NONE') return 'error'
+  if (state.batteryState?.charging) return 'charging'
+  if (state.driving) return 'moving'
+  const opMode = String(state.operatingMode || '').toUpperCase()
+  if (opMode === 'SEMIAUTOMATIC' || opMode === 'MANUAL') return 'teleop'
+  return 'idle'
+}
+
+function robotIdOf(msg) {
+  if (msg.robot_id) return String(msg.robot_id)
+  // На случай если robot_id не пришлют — собираем из manufacturer + serialNumber.
+  if (msg.manufacturer && msg.serialNumber) return `${msg.manufacturer}-${msg.serialNumber}`
+  return null
 }
 
 function deriveWsUrl() {
   const rt = (typeof window !== 'undefined' && window.__FLEET_CONFIG__?.wsUrl) || ''
   if (rt && String(rt).trim()) return String(rt).trim()
 
-  const base = getBaseUrl()  // напр. "http://192.168.0.111:5000/api"
+  const base = getBaseUrl()
   try {
     const u = new URL(base, window.location.origin)
     const wsProto = u.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -70,18 +103,38 @@ function handleMessage(raw) {
   lastMessageAt.value = new Date()
   let msg
   try { msg = JSON.parse(raw) } catch { return }
-  if (!msg || msg.type !== 'state' || !msg.robot_id || !msg.data) return
+  if (!msg || typeof msg !== 'object') return
+
+  const robotId = robotIdOf(msg)
+  if (!robotId) return
 
   const store = useRobotsStore()
-  const rawStatus = String(msg.data.status || '').toUpperCase()
-  const status = WS_STATE_MAP[rawStatus] || 'idle'
-  store.applyTelemetry(msg.robot_id, {
-    x: Number(msg.data.x) || 0,
-    y: Number(msg.data.y) || 0,
-    theta: Number(msg.data.theta) || 0,
-    battery: Math.round(Number(msg.data.battery) || 0),
-    status,
-  })
+
+  // Полный state — есть batteryState/driving/operatingMode. Обновляем всё.
+  if (msg.batteryState || 'driving' in msg || msg.operatingMode) {
+    const patch = { status: deriveStatus(msg) }
+    if (msg.batteryState && msg.batteryState.batteryCharge != null) {
+      patch.battery = Math.round(Number(msg.batteryState.batteryCharge))
+    }
+    if (msg.agvPosition) {
+      patch.x = Number(msg.agvPosition.x) || 0
+      patch.y = Number(msg.agvPosition.y) || 0
+      patch.theta = Number(msg.agvPosition.theta) || 0
+      patch.positionInitialized = !!msg.agvPosition.positionInitialized
+    }
+    store.applyTelemetry(robotId, patch)
+    return
+  }
+
+  // Позиция для Live Map — только agvPosition.
+  if (msg.agvPosition) {
+    store.applyTelemetry(robotId, {
+      x: Number(msg.agvPosition.x) || 0,
+      y: Number(msg.agvPosition.y) || 0,
+      theta: Number(msg.agvPosition.theta) || 0,
+      positionInitialized: !!msg.agvPosition.positionInitialized,
+    })
+  }
 }
 
 export function connect() {

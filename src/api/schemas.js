@@ -185,6 +185,7 @@ export function wireToRobot(w) {
     x: w.status.pose?.x ?? 0,
     y: w.status.pose?.y ?? 0,
     theta: w.status.pose?.theta ?? 0,
+    positionInitialized: w.status.position_initialized ?? false,
     mission: null,
     uptime: '—',
   }
