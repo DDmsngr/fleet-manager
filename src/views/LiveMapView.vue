@@ -40,8 +40,20 @@ const ROBOT_SIZE = 32
 
 const filteredRobots = computed(() => {
   if (!activeMap.value) return robots.robots
-  if (!activeMap.value.assignedRobots.length) return robots.robots
-  return robots.robots.filter((r) => activeMap.value.assignedRobots.includes(r.id))
+  let list = robots.robots
+  if (activeMap.value.assignedRobots.length) {
+    list = list.filter((r) => activeMap.value.assignedRobots.includes(r.id))
+  }
+  // VDA5050 mapId-фильтр (Семён 2026-09-11): робот показывается на карте
+  // только если его mapId совпадает с активной картой. Матчим по name или id
+  // карты - Семён шлёт условное имя типа "room", у нас в store это `name`.
+  // Роботов без mapId (не пришёл ни один WS-agvPosition) не скрываем -
+  // показываем HTTP-снапшот пока WS не отзовётся.
+  list = list.filter((r) => {
+    if (!r.mapId) return true
+    return r.mapId === activeMap.value.name || r.mapId === activeMap.value.id
+  })
+  return list
 })
 
 const showRoutes = ref(true)
