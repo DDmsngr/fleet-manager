@@ -84,6 +84,7 @@ export const useRobotsStore = defineStore('robots', () => {
       battery: 0, x: 0, y: 0, theta: 0,
       mission: null, uptime: '0h',
       positionInitialized: false,  // VDA5050 — пока робот не пришлёт agvPosition, считаем не откалиброван
+      mapId: null,                  // VDA5050 mapId — установит первый WS-агвПозишн
     })
   }
 
@@ -108,8 +109,11 @@ export const useRobotsStore = defineStore('robots', () => {
       battery: patch.battery ?? cur.battery,
       status: patch.status ?? cur.status,
       // positionInitialized: VDA5050-флаг из agvPosition. false = робот не знает
-      // где он (нужна калибровка). Отображается пометкой в таблице [[reference-fleet-manager-live-map]].
+      // где он (нужна калибровка). Отображается пометкой в таблице.
       positionInitialized: patch.positionInitialized ?? cur.positionInitialized,
+      // mapId: карта, к которой привязана позиция (VDA5050). Используется для
+      // фильтрации на Live Map — показываем только роботов активной карты.
+      mapId: patch.mapId ?? cur.mapId,
     }
   }
 
